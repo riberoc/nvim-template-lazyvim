@@ -3,3 +3,5 @@
 -- Add any additional options here
 vim.opt.clipboard = ""
 vim.opt.relativenumber = false
+
+vim.g.doge_doc_standard_python = "google"
