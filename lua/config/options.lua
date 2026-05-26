@@ -5,3 +5,5 @@ vim.opt.clipboard = ""
 vim.opt.relativenumber = false
 
 vim.g.doge_doc_standard_python = "google"
+
+vim.opt.wrap = true

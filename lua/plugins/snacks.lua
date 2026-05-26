@@ -13,6 +13,10 @@ return {
           ignored = true,
         },
       },
+      layout = {
+        preview = false,
+        width = 0.5,
+      },
     },
   },
 }
