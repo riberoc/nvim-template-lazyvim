@@ -11,3 +11,9 @@ local wk = require("which-key")
 wk.add({
   { "<leader>cg", "<cmd>DogeGenerate<cr>", desc = "Generate DocString", mode = "n" },
 })
+
+-- remove snacks terminal keymaps (LazyVim defaults)
+pcall(vim.keymap.del, "n", "<leader>ft")
+pcall(vim.keymap.del, "n", "<leader>fT")
+pcall(vim.keymap.del, "n", "<c-/>")
+pcall(vim.keymap.del, "t", "<c-/>")

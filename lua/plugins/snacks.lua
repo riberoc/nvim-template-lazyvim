@@ -2,8 +2,9 @@ return {
   "folke/snacks.nvim",
   opts = {
     notifier = { enabled = true },
-
-    -- show hidden files in snacks.explorer
+    explorer = {
+      replace_netrw = true,
+    },
     picker = {
       sources = {
         explorer = {
@@ -11,11 +12,8 @@ return {
           hidden = true,
           -- show files ignored by git like node_modules
           ignored = true,
+          layout = { preset = "sidebar", preview = false, layout = { width = 25, min_width = 25 } },
         },
-      },
-      layout = {
-        preview = false,
-        width = 0.5,
       },
     },
   },
