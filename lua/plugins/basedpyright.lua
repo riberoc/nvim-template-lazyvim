@@ -1,11 +1,3 @@
-return {
-  {
-    "neovim/nvim-lspconfig",
-    opts = {
-      servers = {
-        pylsp = { enabled = false },
-        basedpyright = {},
-      },
-    },
-  },
-}
+require("lspconfig").basedpyright.setup({
+  autostart = true,
+})
