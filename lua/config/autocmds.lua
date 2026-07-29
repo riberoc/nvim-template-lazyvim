@@ -17,3 +17,15 @@ vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     vim.bo.filetype = "tex"
   end,
 })
+
+-- Automatically open PDF files in Zathura when selected/opened
+vim.api.nvim_create_autocmd("BufReadPost", {
+  pattern = "*.pdf",
+  callback = function(ev)
+    -- Launch zathura in the background detached from Neovim
+    vim.fn.jobstart({ "zathura", ev.file }, { detach = true })
+
+    -- Wipe out the raw binary buffer Neovim just created
+    vim.api.nvim_buf_delete(ev.buf, { force = true })
+  end,
+})

@@ -1,28 +1,80 @@
 -- Keymaps are automatically loaded on the VeryLazy event
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
---
--- Generate comment for current line
 
--- delete original mapping if needed
---
 local wk = require("which-key")
+
+-- Global handle to track the Zathura job ID
+local zathura_job_id = nil
 
 wk.add({
   { "<leader>cg", "<cmd>DogeGenerate<cr>", desc = "Generate DocString", mode = "n" },
+  { "<leader>l", group = "latex" },
+  {
+    "<leader>ll",
+    function()
+      if vim.bo.filetype ~= "tex" then
+        vim.notify("Not a LaTeX file!", vim.log.levels.WARN)
+        return
+      end
+      local file = vim.fn.expand("%:p")
+      local pdf = vim.fn.expand("%:p:r") .. ".pdf"
+
+      -- Save current buffer before compiling
+      vim.cmd("silent write")
+
+      -- Run latexmk asynchronously
+      vim.fn.jobstart({ "latexmk", "-pdf", "-interaction=nonstopmode", file }, {
+        on_exit = function(_, exit_code, _)
+          if exit_code == 0 then
+            vim.notify("LaTeX compiled successfully!", vim.log.levels.INFO)
+
+            -- Start Zathura if it isn't already running
+            if not zathura_job_id or vim.fn.jobwait({ zathura_job_id }, 0)[1] ~= -1 then
+              zathura_job_id = vim.fn.jobstart({ "zathura", pdf })
+            end
+          else
+            vim.notify("LaTeX compilation failed! Check logs.", vim.log.levels.ERROR)
+          end
+        end,
+      })
+    end,
+    desc = "Compile LaTeX and Open PDF",
+    mode = "n",
+  },
 })
 
-vim.keymap.set("n", "<leader>ll", function()
-  local tex = vim.fn.expand("%:p")
-  local pdf = vim.fn.expand("%:p:r") .. ".pdf"
+-- Automatically kill the Zathura instance when Neovim closes
+vim.api.nvim_create_autocmd("VimLeavePre", {
+  callback = function()
+    if zathura_job_id and vim.fn.jobwait({ zathura_job_id }, 0)[1] == -1 then
+      vim.fn.jobstop(zathura_job_id)
+    end
+  end,
+})
 
-  -- open zathura once, detached, ignore if already running
-  vim.fn.jobstart({ "zathura", pdf }, { detach = true })
+vim.api.nvim_create_autocmd("BufWritePost", {
+  pattern = "*.tex",
+  callback = function()
+    local file = vim.fn.expand("%:p")
+    local pdf = vim.fn.expand("%:p:r") .. ".pdf"
 
-  -- compile loop, no viewer spawn
-  vim.cmd("terminal latexmk -pdf -pvc -view=none " .. vim.fn.shellescape(tex))
-end, { desc = "Build latex + preview in zathura" })
--- remove snacks terminal keymaps (LazyVim defaults)
+    vim.fn.jobstart({ "latexmk", "-pdf", "-interaction=nonstopmode", file }, {
+      on_exit = function(_, exit_code, _)
+        if exit_code == 0 then
+          -- If Zathura isn't running yet, open it
+          if not zathura_job_id or vim.fn.jobwait({ zathura_job_id }, 0)[1] ~= -1 then
+            zathura_job_id = vim.fn.jobstart({ "zathura", pdf })
+          end
+        else
+          vim.notify("LaTeX compilation failed on save!", vim.log.levels.WARN)
+        end
+      end,
+    })
+  end,
+})
+
+-- Remove snacks terminal keymaps (LazyVim defaults)
 pcall(vim.keymap.del, "n", "<leader>ft")
 pcall(vim.keymap.del, "n", "<leader>fT")
 pcall(vim.keymap.del, "n", "<c-/>")
