@@ -104,13 +104,6 @@ local function resolve_path(path)
   return bufdir .. "/" .. path
 end
 
-local function ensure_transparent_float_hl()
-  local ok, hl = pcall(vim.api.nvim_get_hl, 0, { name = "NormalFloat", link = false })
-  if not ok or (hl and hl.bg ~= nil) then
-    vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
-  end
-end
-
 -- ---------------------------------------------------------------------------
 -- space and context detection
 -- ---------------------------------------------------------------------------
@@ -261,6 +254,7 @@ function Preview:reposition(position_fn)
     col = col_pos,
     width = self.cols,
     height = self.rows,
+    border = BORDER_STYLE, -- Always enforce border once finalized
   })
 end
 
@@ -290,13 +284,15 @@ function Preview:load_and_render(full_path, cols, rows, position_fn)
   self.image = img_or_err
 
   local cur_cols, cur_rows = cols, rows
-  local settled = false
   local preview = self
+  local retry_count = 0
 
   local function do_render()
     if not preview.image or not preview:is_open() then
       return
     end
+
+    -- Initial render triggers image.nvim to query the terminal
     local ok_r = pcall(function()
       preview.image:render({ x = 0, y = 0, width = cur_cols, height = cur_rows })
     end)
@@ -307,19 +303,30 @@ function Preview:load_and_render(full_path, cols, rows, position_fn)
     end
 
     local geo = preview.image.rendered_geometry
-    if ok_r and not settled and geo and geo.width and geo.height then
-      settled = true
-      if geo.width ~= cur_cols or geo.height ~= cur_rows then
-        cur_cols, cur_rows = geo.width, geo.height
+    if geo and geo.width and geo.height then
+      cur_cols, cur_rows = geo.width, geo.height
+
+      -- We have the exact layout geometry! Resize applies the border
+      -- that we kept hidden during the initial guess.
+      preview:resize(cur_cols, cur_rows, position_fn)
+
+      -- One final render to snap image bounds to the finalized window
+      pcall(function()
+        preview.image:render({ x = 0, y = 0, width = cur_cols, height = cur_rows })
+      end)
+    else
+      -- Wait a split second for the backend to return terminal info
+      retry_count = retry_count + 1
+      if retry_count < 5 then
+        vim.defer_fn(do_render, 20)
+      else
+        -- Fallback: just apply the border anyway
         preview:resize(cur_cols, cur_rows, position_fn)
-        do_render()
       end
     end
   end
 
   do_render()
-  vim.schedule(do_render)
-  vim.defer_fn(do_render, 50)
 end
 
 function Preview:show(path, position_fn, max_cols, max_rows)
@@ -336,7 +343,6 @@ function Preview:show(path, position_fn, max_cols, max_rows)
   end
 
   self:close()
-  ensure_transparent_float_hl()
 
   local cols, rows = compute_preview_geometry(full, max_cols, max_rows)
   self.cols, self.rows = cols, rows
@@ -347,16 +353,23 @@ function Preview:show(path, position_fn, max_cols, max_rows)
   self.buf = buf
 
   local row_pos, col_pos = position_fn(cols, rows)
+
+  -- Open borderless first, but offset it inward so the inner content is exactly
+  -- where it will be when the border is eventually snapped on.
+  -- Combined with `bg = "none"`, this makes the window completely invisible
+  -- while it guesses the size, eliminating the border-flash!
+  local b_off = BORDER_CELLS > 0 and 1 or 0
+
   local ok_win, win = pcall(vim.api.nvim_open_win, buf, false, {
     relative = "editor",
-    row = row_pos,
-    col = col_pos,
+    row = row_pos + b_off,
+    col = col_pos + b_off,
     width = cols,
     height = rows,
     style = "minimal",
     focusable = false,
     zindex = 50,
-    border = BORDER_STYLE,
+    border = "none",
   })
   if not ok_win or not win then
     self:close()
@@ -367,7 +380,7 @@ function Preview:show(path, position_fn, max_cols, max_rows)
   pcall(
     vim.api.nvim_set_option_value,
     "winhighlight",
-    "Normal:NormalFloat,NormalFloat:NormalFloat,FloatBorder:FigLinkBorder",
+    "Normal:FigLinkFloat,NormalFloat:FigLinkFloat,FloatBorder:FigLinkBorder",
     { win = win }
   )
   pcall(vim.api.nvim_set_option_value, "winblend", 0, { win = win })
@@ -572,7 +585,7 @@ function M.open_fig()
 end
 
 function M.inspect_state()
-  -- (Omitted for brevity, kept exactly as in your original file)
+  -- Omitted for brevity, kept exactly as in your original file
 end
 
 -- ---------------------------------------------------------------------------
@@ -612,6 +625,9 @@ function M.setup(opts)
   vim.api.nvim_set_hl(0, "FigLink", { link = "Underlined", default = true })
   vim.api.nvim_set_hl(0, "FigLinkSide", { link = "Underlined", default = true })
   vim.api.nvim_set_hl(0, "FigLinkBorder", { link = "FloatBorder", default = true })
+
+  -- Create an isolated transparent background just for these floats
+  vim.api.nvim_set_hl(0, "FigLinkFloat", { bg = "none", default = true })
 
   local group = vim.api.nvim_create_augroup("FigLink", { clear = true })
 
@@ -656,8 +672,6 @@ function M.setup(opts)
     end,
   })
 
-  -- Crucial Fix: Cursor movement now closes the hover window AND schedules a side update
-  -- since the side diagram is now dependent on where your cursor is vertically.
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufLeave", "WinLeave" }, {
     group = group,
     callback = function()
