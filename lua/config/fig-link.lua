@@ -1,8 +1,15 @@
 -- ~/.config/nvim/lua/fig-link.lua
 --
--- fig:path/to/file.png  ->  underlined link
---   gf / double-click   ->  open with system viewer
---   CursorHold on link  ->  inline image preview in a floating window
+-- fig:path/to/file.png       ->  hover link: underlined, CursorHold shows a
+--                                 floating preview near the cursor, closes
+--                                 when you move away.
+-- fig-side:path/to/file.png  ->  pinned diagram: always rendered in a
+--                                 floating panel docked to the far right
+--                                 edge of the editor while its buffer/window
+--                                 is active. Meant for "this diagram explains
+--                                 the code in this file" references.
+--
+--   gf / double-click   ->  open either link type with the system viewer
 --
 -- Requires: 3rd/image.nvim, kitty (or compatible) terminal, ImageMagick
 --           (`identify` on PATH -- image.nvim already depends on this for
@@ -20,23 +27,34 @@ local M = {}
 -- ---------------------------------------------------------------------------
 
 local FIG_PATTERN = "fig:([^%s%)%]\"']+)"
+local FIG_SIDE_PATTERN = "fig%-side:([^%s%)%]\"']+)"
+local LINK_PATTERNS = { FIG_PATTERN, FIG_SIDE_PATTERN }
 
--- Upper bound on the preview window size, in terminal cells.
+-- Upper bound on the hover preview size, in terminal cells.
 local MAX_WIDTH = 60
 local MAX_HEIGHT = 20
+
+-- Upper bound on the pinned side-diagram panel. Wider box, since it's meant
+-- to stay open and be read at a glance rather than a quick hover peek.
+local SIDE_MAX_WIDTH = 50
+local SIDE_MAX_HEIGHT = 40
+local SIDE_MARGIN = 1 -- cells between the panel and the editor's right edge
 
 -- Terminal character cells are taller than they are wide, so a plain
 -- width==columns/height==rows mapping stretches images vertically. Most
 -- monospace fonts render cells at roughly a 1:2 width:height pixel ratio;
 -- this constant corrects for that when we convert an image's pixel
--- dimensions into a cell geometry. Tweak it if your font is unusually
--- wide/narrow.
+-- dimensions into a cell geometry. It's only used as an initial guess --
+-- see Preview:load_and_render, which shrinks to image.nvim's own reported
+-- geometry once it's known. Tweak it if your font is unusually wide/narrow.
 local CELL_ASPECT_RATIO = 2.0
 
--- Border drawn around the preview float. Set to "none" to go back to a
--- borderless window.
+-- Border drawn around preview floats. Set to "none" to go borderless.
 local BORDER_STYLE = "rounded"
 local BORDER_CELLS = 2 -- border adds ~1 cell on each side, per axis
+
+-- Debounce delay for buffer-content-triggered side-panel refreshes.
+local SIDE_DEBOUNCE_MS = 150
 
 -- ---------------------------------------------------------------------------
 -- debug logging
@@ -60,25 +78,15 @@ end
 local ok_image, image = pcall(require, "image")
 
 -- ---------------------------------------------------------------------------
--- preview state
--- ---------------------------------------------------------------------------
-
-local preview_image = nil
-local preview_win = nil
-local preview_buf = nil
-local last_path = nil
-
--- ---------------------------------------------------------------------------
 -- link detection / path resolution
 -- ---------------------------------------------------------------------------
 
-local function get_fig_under_cursor()
-  local line = vim.api.nvim_get_current_line()
-  local col = vim.api.nvim_win_get_cursor(0)[2] + 1
-
+-- Cursor-under-link check for a single Lua pattern. Returns the captured
+-- path, or nil.
+local function match_under_cursor(line, col, pattern)
   local start_idx = 1
   while true do
-    local s, e, path = line:find(FIG_PATTERN, start_idx)
+    local s, e, path = line:find(pattern, start_idx)
     if not s then
       return nil
     end
@@ -87,6 +95,40 @@ local function get_fig_under_cursor()
     end
     start_idx = e + 1
   end
+end
+
+-- Used for gf / double-click: either link flavor counts.
+local function get_link_under_cursor()
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2] + 1
+  for _, pattern in ipairs(LINK_PATTERNS) do
+    local path = match_under_cursor(line, col, pattern)
+    if path then
+      return path
+    end
+  end
+  return nil
+end
+
+-- Used for the hover preview: only plain `fig:` links trigger it. The
+-- `fig-side:` diagram already has its own always-on panel, so hovering it
+-- shouldn't pop up a second, redundant floating preview.
+local function get_hover_fig_under_cursor()
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2] + 1
+  return match_under_cursor(line, col, FIG_PATTERN)
+end
+
+-- First `fig-side:` reference in the current buffer, or nil.
+local function find_side_path_in_buffer()
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  for _, line in ipairs(lines) do
+    local _, _, path = line:find(FIG_SIDE_PATTERN)
+    if path then
+      return path
+    end
+  end
+  return nil
 end
 
 local function resolve_path(path)
@@ -148,43 +190,27 @@ local function fit_to_cells(img_w, img_h, max_cols, max_rows)
   return cols, rows
 end
 
--- Works out the preview window's content geometry (in cells) for a given
--- file. Falls back to the fixed MAX_WIDTH x MAX_HEIGHT box if the image's
--- real dimensions can't be determined.
-local function compute_preview_geometry(full_path)
+-- Works out a preview window's initial content geometry (in cells) for a
+-- given file and a max_cols x max_rows bound. Falls back to the bound
+-- itself if the image's real dimensions can't be determined. This is only
+-- a starting guess -- Preview:load_and_render shrinks to image.nvim's own
+-- reported geometry once the first render completes.
+local function compute_preview_geometry(full_path, max_cols, max_rows)
   local img_w, img_h = get_image_pixel_size(full_path)
   if not img_w then
-    return MAX_WIDTH, MAX_HEIGHT
+    return max_cols, max_rows
   end
 
-  local cols, rows = fit_to_cells(img_w, img_h, MAX_WIDTH, MAX_HEIGHT)
+  local cols, rows = fit_to_cells(img_w, img_h, max_cols, max_rows)
   log(string.format("geometry %dx%d px -> %dx%d cells", img_w, img_h, cols, rows))
   return cols, rows
 end
 
 -- ---------------------------------------------------------------------------
--- preview lifecycle
+-- scratch buffer helper
 -- ---------------------------------------------------------------------------
 
-local function close_preview()
-  if preview_image then
-    pcall(function()
-      preview_image:clear()
-    end)
-    preview_image = nil
-  end
-  if preview_win and vim.api.nvim_win_is_valid(preview_win) then
-    pcall(vim.api.nvim_win_close, preview_win, true)
-  end
-  if preview_buf and vim.api.nvim_buf_is_valid(preview_buf) then
-    pcall(vim.api.nvim_buf_delete, preview_buf, { force = true })
-  end
-  preview_win = nil
-  preview_buf = nil
-  last_path = nil
-end
-
--- Creates the scratch buffer the image gets drawn into. image.nvim needs
+-- Creates the scratch buffer an image gets drawn into. image.nvim needs
 -- real cells under the graphic or the terminal won't commit it to those
 -- rows, so we fill the buffer with blank lines matching the window size.
 local function create_scratch_buffer(cols, rows)
@@ -207,22 +233,195 @@ local function create_scratch_buffer(cols, rows)
   return buf
 end
 
--- Clamped editor-relative position for a cols x rows (+border) float, so it
--- never spills off-screen.
-local function preview_position(cols, rows)
-  local editor_w, editor_h = vim.o.columns, vim.o.lines
-  local outer_w, outer_h = cols + BORDER_CELLS, rows + BORDER_CELLS
+-- ---------------------------------------------------------------------------
+-- Preview: one floating image panel.
+--
+-- Both the cursor-hover preview and the pinned side-diagram panel are the
+-- same kind of thing (a float showing one image, sized to its own aspect
+-- ratio), just anchored differently and with different open/close rules.
+-- This class holds that shared behavior once instead of duplicating it.
+-- ---------------------------------------------------------------------------
 
-  local col_pos = math.max(0, math.min(editor_w - outer_w - 2, vim.fn.wincol() + 2))
-  local row_pos = math.max(0, math.min(editor_h - outer_h - 2, vim.fn.winline()))
-  return row_pos, col_pos
+local Preview = {}
+Preview.__index = Preview
+
+function Preview.new(name)
+  return setmetatable({
+    name = name,
+    win = nil,
+    buf = nil,
+    image = nil,
+    last_path = nil,
+    cols = nil,
+    rows = nil,
+  }, Preview)
 end
 
--- Opens the floating window that hosts the preview, anchored to the editor
--- (not the cursor -- avoids cursor-position calc bugs in image.nvim popups).
-local function open_preview_window(buf, cols, rows)
-  local row_pos, col_pos = preview_position(cols, rows)
+function Preview:is_open()
+  return self.win ~= nil and vim.api.nvim_win_is_valid(self.win)
+end
 
+function Preview:close()
+  if self.image then
+    pcall(function()
+      self.image:clear()
+    end)
+  end
+  if self:is_open() then
+    pcall(vim.api.nvim_win_close, self.win, true)
+  end
+  if self.buf and vim.api.nvim_buf_is_valid(self.buf) then
+    pcall(vim.api.nvim_buf_delete, self.buf, { force = true })
+  end
+  self.win, self.buf, self.image, self.last_path = nil, nil, nil, nil
+  self.cols, self.rows = nil, nil
+end
+
+-- Moves (and/or resizes) the float using a fresh call to position_fn(cols,
+-- rows). Used both after a resize and on bare editor-resize events.
+function Preview:reposition(position_fn)
+  if not self:is_open() then
+    return
+  end
+  local row_pos, col_pos = position_fn(self.cols, self.rows)
+  pcall(vim.api.nvim_win_set_config, self.win, {
+    relative = "editor",
+    row = row_pos,
+    col = col_pos,
+    width = self.cols,
+    height = self.rows,
+  })
+end
+
+-- Resizes the buffer's blank-line canvas and the float to a new cols x
+-- rows, repositioning via position_fn so the border stays on-screen. Used
+-- to correct our initial size guess once image.nvim reports the geometry
+-- it actually rendered at.
+function Preview:resize(cols, rows, position_fn)
+  self.cols, self.rows = cols, rows
+
+  local blank = {}
+  for _ = 1, rows do
+    table.insert(blank, string.rep(" ", cols))
+  end
+  pcall(vim.api.nvim_buf_set_lines, self.buf, 0, -1, false, blank)
+
+  self:reposition(position_fn)
+  log(string.format("[%s] resized to %dx%d", self.name, cols, rows))
+end
+
+-- Loads and renders the image into self.win. Some backends need a
+-- follow-up render after the float's cells are actually committed, so we
+-- render synchronously and also schedule two retries. On the first
+-- successful render we also shrink-to-fit against image.nvim's own
+-- reported geometry (see module header comment on CELL_ASPECT_RATIO).
+function Preview:load_and_render(full_path, cols, rows, position_fn)
+  -- Do NOT pass `buffer` here. image.nvim treats buffer= as "inline in this
+  -- text buffer" and uses extmarks/virtual padding, which fights with a
+  -- dedicated float. Passing only `window` renders into the window's cell
+  -- grid, which is what we want.
+  local from_file_opts = {
+    window = self.win,
+    width = cols,
+    height = rows,
+    with_virtual_padding = false,
+    inline = false,
+  }
+
+  local ok_img, img_or_err = pcall(image.from_file, full_path, from_file_opts)
+  log(
+    string.format(
+      "[%s] from_file ok=%s val=%s",
+      self.name,
+      tostring(ok_img),
+      vim.inspect(img_or_err)
+    )
+  )
+
+  if not ok_img or not img_or_err or type(img_or_err) ~= "table" then
+    self:close()
+    vim.notify("[fig-link] failed to load image: " .. full_path, vim.log.levels.WARN)
+    return
+  end
+  self.image = img_or_err
+
+  local cur_cols, cur_rows = cols, rows
+  local settled = false
+  local preview = self
+
+  local function do_render()
+    if not preview.image or not preview:is_open() then
+      return
+    end
+
+    local ok_r = pcall(function()
+      preview.image:render({ x = 0, y = 0, width = cur_cols, height = cur_rows })
+    end)
+    if not ok_r then
+      ok_r = pcall(function()
+        preview.image:render()
+      end)
+    end
+
+    local geo = preview.image.rendered_geometry
+    log(
+      string.format(
+        "[%s] render ok=%s is_rendered=%s rendered_geometry=%s",
+        preview.name,
+        tostring(ok_r),
+        tostring(preview.image.is_rendered),
+        vim.inspect(geo)
+      )
+    )
+
+    if ok_r and not settled and geo and geo.width and geo.height then
+      settled = true
+      if geo.width ~= cur_cols or geo.height ~= cur_rows then
+        cur_cols, cur_rows = geo.width, geo.height
+        preview:resize(cur_cols, cur_rows, position_fn)
+        do_render() -- one corrective pass at the real geometry
+      end
+    end
+  end
+
+  do_render()
+  vim.schedule(do_render)
+  vim.defer_fn(do_render, 50)
+end
+
+-- Opens (or no-ops if already showing `path`) this preview, sized to fit
+-- within max_cols x max_rows and positioned by position_fn(cols, rows) ->
+-- row, col.
+function Preview:show(path, position_fn, max_cols, max_rows)
+  if not ok_image then
+    log("image.nvim not loaded")
+    return
+  end
+  if path == self.last_path and self:is_open() then
+    log(string.format("[%s] already showing %s", self.name, path))
+    return
+  end
+
+  local full = resolve_path(path)
+  log(string.format("[%s] resolve %s -> %s", self.name, path, full))
+  if vim.fn.filereadable(full) == 0 then
+    log(string.format("[%s] not readable: %s", self.name, full))
+    return
+  end
+
+  self:close()
+  ensure_transparent_float_hl()
+
+  local cols, rows = compute_preview_geometry(full, max_cols, max_rows)
+  self.cols, self.rows = cols, rows
+
+  local buf = create_scratch_buffer(cols, rows)
+  if not buf then
+    return
+  end
+  self.buf = buf
+
+  local row_pos, col_pos = position_fn(cols, rows)
   local ok_win, win = pcall(vim.api.nvim_open_win, buf, false, {
     relative = "editor",
     row = row_pos,
@@ -235,9 +434,11 @@ local function open_preview_window(buf, cols, rows)
     border = BORDER_STYLE,
   })
   if not ok_win or not win then
-    log("nvim_open_win failed")
-    return nil
+    log(string.format("[%s] nvim_open_win failed", self.name))
+    self:close()
+    return
   end
+  self.win = win
 
   -- Transparent body so the kitty graphic shows through; a visible border
   -- so the image reads as a framed preview instead of a stray floating box.
@@ -249,9 +450,11 @@ local function open_preview_window(buf, cols, rows)
   )
   pcall(vim.api.nvim_set_option_value, "winblend", 0, { win = win })
 
+  self.last_path = path
   log(
     string.format(
-      "float win=%d at row=%d col=%d %dx%d (+border)",
+      "[%s] float win=%d at row=%d col=%d %dx%d (+border)",
+      self.name,
       win,
       row_pos,
       col_pos,
@@ -259,145 +462,69 @@ local function open_preview_window(buf, cols, rows)
       rows
     )
   )
-  return win
+
+  self:load_and_render(full, cols, rows, position_fn)
 end
 
--- Resizes the buffer's blank-line canvas and the float window itself to a
--- new cols x rows, repositioning so the border stays on-screen. Used to
--- correct our initial size guess once image.nvim reports the geometry it
--- actually rendered at.
-local function resize_preview(buf, win, cols, rows)
-  local blank = {}
-  for _ = 1, rows do
-    table.insert(blank, string.rep(" ", cols))
-  end
-  pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, blank)
+-- ---------------------------------------------------------------------------
+-- the two preview instances + their positioning rules
+-- ---------------------------------------------------------------------------
 
-  local row_pos, col_pos = preview_position(cols, rows)
-  pcall(vim.api.nvim_win_set_config, win, {
-    relative = "editor",
-    row = row_pos,
-    col = col_pos,
-    width = cols,
-    height = rows,
-  })
+local hover_preview = Preview.new("hover")
+local side_preview = Preview.new("side")
 
-  log(string.format("resized preview to %dx%d at row=%d col=%d", cols, rows, row_pos, col_pos))
+-- Hover preview: floats near the cursor, clamped to stay on-screen.
+local function hover_position(cols, rows)
+  local editor_w, editor_h = vim.o.columns, vim.o.lines
+  local outer_w, outer_h = cols + BORDER_CELLS, rows + BORDER_CELLS
+
+  local col_pos = math.max(0, math.min(editor_w - outer_w - 2, vim.fn.wincol() + 2))
+  local row_pos = math.max(0, math.min(editor_h - outer_h - 2, vim.fn.winline()))
+  return row_pos, col_pos
 end
 
--- Loads and renders the image into preview_win. Some backends need a
--- follow-up render after the float's cells are actually committed, so we
--- render synchronously and also schedule two retries.
-local function load_and_render_image(full_path, cols, rows)
-  -- Do NOT pass `buffer` here. image.nvim treats buffer= as "inline in this
-  -- text buffer" and uses extmarks/virtual padding, which fights with a
-  -- dedicated float. Passing only `window` renders into the window's cell
-  -- grid, which is what we want -- and since the window is now sized to
-  -- the image's own aspect ratio, filling it no longer stretches anything.
-  local from_file_opts = {
-    window = preview_win,
-    width = cols,
-    height = rows,
-    with_virtual_padding = false,
-    inline = false,
-  }
+-- Side diagram panel: pinned to the far right edge of the editor,
+-- vertically centered, independent of where the cursor happens to be.
+local function side_position(cols, rows)
+  local editor_w, editor_h = vim.o.columns, vim.o.lines
+  local outer_w, outer_h = cols + BORDER_CELLS, rows + BORDER_CELLS
 
-  local ok_img, img_or_err = pcall(image.from_file, full_path, from_file_opts)
-  log("from_file ok=" .. tostring(ok_img) .. " val=" .. vim.inspect(img_or_err))
-
-  if not ok_img or not img_or_err or type(img_or_err) ~= "table" then
-    close_preview()
-    vim.notify("[fig-link] failed to load image: " .. full_path, vim.log.levels.WARN)
-    return
-  end
-  preview_image = img_or_err
-
-  -- Our upfront cols/rows are a heuristic guess (see fit_to_cells). Once
-  -- image.nvim actually renders, it knows the true cell pixel size and
-  -- reports the geometry it really used; we shrink the window to match
-  -- that exactly, once, so the border hugs the image instead of leaving
-  -- dead space when our guess was a bit off.
-  local cur_cols, cur_rows = cols, rows
-  local settled = false
-
-  local function do_render()
-    if not preview_image then
-      return
-    end
-    if not (preview_win and vim.api.nvim_win_is_valid(preview_win)) then
-      return
-    end
-    local ok_r = pcall(function()
-      preview_image:render({ x = 0, y = 0, width = cur_cols, height = cur_rows })
-    end)
-    if not ok_r then
-      ok_r = pcall(function()
-        preview_image:render()
-      end)
-    end
-
-    local geo = preview_image.rendered_geometry
-    log(
-      string.format(
-        "render ok=%s is_rendered=%s rendered_geometry=%s",
-        tostring(ok_r),
-        tostring(preview_image.is_rendered),
-        vim.inspect(geo)
-      )
-    )
-
-    if ok_r and not settled and geo and geo.width and geo.height then
-      settled = true
-      if geo.width ~= cur_cols or geo.height ~= cur_rows then
-        cur_cols, cur_rows = geo.width, geo.height
-        resize_preview(preview_buf, preview_win, cur_cols, cur_rows)
-        do_render() -- one corrective pass at the real geometry
-      end
-    end
-  end
-
-  do_render()
-  vim.schedule(do_render)
-  vim.defer_fn(do_render, 50)
+  local col_pos = math.max(0, editor_w - outer_w - SIDE_MARGIN)
+  local row_pos = math.max(0, math.floor((editor_h - outer_h) / 2))
+  return row_pos, col_pos
 end
 
-local function show_preview(path)
-  if not ok_image then
-    log("image.nvim not loaded")
+-- Refreshes the pinned side panel to match whatever `fig-side:` reference
+-- (if any) is in the current buffer. Safe to call often -- it's a no-op if
+-- the same path is already showing.
+local function update_side_preview()
+  local path = find_side_path_in_buffer()
+  if path then
+    side_preview:show(path, side_position, SIDE_MAX_WIDTH, SIDE_MAX_HEIGHT)
+  else
+    side_preview:close()
+  end
+end
+
+-- Debounced wrapper for high-frequency triggers (typing).
+local side_update_scheduled = false
+local function schedule_side_update()
+  if side_update_scheduled then
     return
   end
-  if path == last_path and preview_win and vim.api.nvim_win_is_valid(preview_win) then
-    log("already showing " .. path)
-    return
-  end
+  side_update_scheduled = true
+  vim.defer_fn(function()
+    side_update_scheduled = false
+    update_side_preview()
+  end, SIDE_DEBOUNCE_MS)
+end
 
-  local full = resolve_path(path)
-  log("resolve " .. path .. " -> " .. full)
-  if vim.fn.filereadable(full) == 0 then
-    log("not readable: " .. full)
-    return
-  end
-
-  close_preview()
-  ensure_transparent_float_hl()
-
-  local cols, rows = compute_preview_geometry(full)
-
-  local buf = create_scratch_buffer(cols, rows)
-  if not buf then
-    return
-  end
-  preview_buf = buf
-
-  local win = open_preview_window(buf, cols, rows)
-  if not win then
-    close_preview()
-    return
-  end
-  preview_win = win
-  last_path = path
-
-  load_and_render_image(full, cols, rows)
+-- Forces a full reload (not just a reposition) next time the side panel
+-- updates -- used on editor resize, where the max-size bounds may now fit
+-- differently.
+local function force_side_reload()
+  side_preview.last_path = nil
+  update_side_preview()
 end
 
 -- ---------------------------------------------------------------------------
@@ -430,9 +557,9 @@ local function open_with_system(path)
 end
 
 function M.open_fig()
-  local path = get_fig_under_cursor()
+  local path = get_link_under_cursor()
   if not path then
-    vim.notify("[fig-link] no fig: reference under cursor", vim.log.levels.INFO)
+    vim.notify("[fig-link] no fig: / fig-side: reference under cursor", vim.log.levels.INFO)
     return
   end
   open_with_system(path)
@@ -442,15 +569,24 @@ end
 -- inspection command
 -- ---------------------------------------------------------------------------
 
+local function preview_snapshot(preview)
+  return {
+    win = preview.win,
+    win_valid = preview:is_open(),
+    buf = preview.buf,
+    buf_valid = preview.buf and vim.api.nvim_buf_is_valid(preview.buf),
+    last_path = preview.last_path,
+    cols = preview.cols,
+    rows = preview.rows,
+    image = preview.image and "<image handle>" or nil,
+  }
+end
+
 function M.inspect_state()
   local info = {
     ok_image = ok_image,
-    preview_win = preview_win,
-    win_valid = preview_win and vim.api.nvim_win_is_valid(preview_win),
-    preview_buf = preview_buf,
-    buf_valid = preview_buf and vim.api.nvim_buf_is_valid(preview_buf),
-    last_path = last_path,
-    preview_image = preview_image and "<image handle>" or nil,
+    hover = preview_snapshot(hover_preview),
+    side = preview_snapshot(side_preview),
   }
   vim.notify("[fig-link] state = " .. vim.inspect(info), vim.log.levels.INFO)
 
@@ -483,15 +619,32 @@ function M.setup(opts)
   if opts.debug then
     DEBUG = true
   end
+  if opts.side_max_width then
+    SIDE_MAX_WIDTH = opts.side_max_width
+  end
+  if opts.side_max_height then
+    SIDE_MAX_HEIGHT = opts.side_max_height
+  end
 
   if not ok_image then
     vim.notify("[fig-link] image.nvim not found; preview disabled", vim.log.levels.WARN)
   end
 
-  vim.keymap.set("n", keymap, M.open_fig, { desc = "Open fig: reference (system viewer)" })
-  vim.keymap.set("n", "<2-LeftMouse>", M.open_fig, { desc = "Open fig: reference (system viewer)" })
+  vim.keymap.set(
+    "n",
+    keymap,
+    M.open_fig,
+    { desc = "Open fig: / fig-side: reference (system viewer)" }
+  )
+  vim.keymap.set(
+    "n",
+    "<2-LeftMouse>",
+    M.open_fig,
+    { desc = "Open fig: / fig-side: reference (system viewer)" }
+  )
 
   vim.api.nvim_set_hl(0, "FigLink", { link = "Underlined", default = true })
+  vim.api.nvim_set_hl(0, "FigLinkSide", { link = "Title", default = true })
   vim.api.nvim_set_hl(0, "FigLinkBorder", { link = "FloatBorder", default = true })
 
   vim.api.nvim_create_user_command("FigLinkInspect", function()
@@ -503,15 +656,24 @@ function M.setup(opts)
 
   local group = vim.api.nvim_create_augroup("FigLink", { clear = true })
 
-  local match_id
+  -- ---- link highlighting ----
+  local fig_match_id, side_match_id
   local function apply_match()
-    if match_id then
-      pcall(vim.fn.matchdelete, match_id)
-      match_id = nil
+    if fig_match_id then
+      pcall(vim.fn.matchdelete, fig_match_id)
+      fig_match_id = nil
     end
-    local ok, id = pcall(vim.fn.matchadd, "FigLink", [[fig:\S\+]])
-    if ok then
-      match_id = id
+    if side_match_id then
+      pcall(vim.fn.matchdelete, side_match_id)
+      side_match_id = nil
+    end
+    local ok1, id1 = pcall(vim.fn.matchadd, "FigLink", [[fig:\S\+]])
+    if ok1 then
+      fig_match_id = id1
+    end
+    local ok2, id2 = pcall(vim.fn.matchadd, "FigLinkSide", [[fig-side:\S\+]])
+    if ok2 then
+      side_match_id = id2
     end
   end
 
@@ -521,18 +683,18 @@ function M.setup(opts)
   })
   apply_match()
 
+  -- ---- hover preview (fig:) ----
   vim.api.nvim_create_autocmd("CursorHold", {
     group = group,
     callback = function()
-      -- Never trigger from inside our own float.
-      if vim.api.nvim_get_current_win() == preview_win then
-        return
+      if vim.api.nvim_get_current_win() == hover_preview.win then
+        return -- never trigger from inside our own float
       end
-      local path = get_fig_under_cursor()
+      local path = get_hover_fig_under_cursor()
       if path then
-        show_preview(path)
+        hover_preview:show(path, hover_position, MAX_WIDTH, MAX_HEIGHT)
       else
-        close_preview()
+        hover_preview:close()
       end
     end,
   })
@@ -540,17 +702,50 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufLeave", "WinLeave" }, {
     group = group,
     callback = function()
-      -- Ignore movement inside our own preview window.
-      if vim.api.nvim_get_current_win() == preview_win then
+      if vim.api.nvim_get_current_win() == hover_preview.win then
+        return -- ignore movement inside our own preview window
+      end
+      hover_preview:close()
+    end,
+  })
+
+  -- ---- pinned side diagram (fig-side:) ----
+  vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+    group = group,
+    callback = function()
+      if vim.api.nvim_get_current_win() == side_preview.win then
         return
       end
-      close_preview()
+      update_side_preview()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    callback = schedule_side_update,
+  })
+
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = group,
+    callback = force_side_reload,
+  })
+
+  vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+    group = group,
+    callback = function()
+      if vim.api.nvim_get_current_win() == side_preview.win then
+        return
+      end
+      side_preview:close()
     end,
   })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = group,
-    callback = close_preview,
+    callback = function()
+      hover_preview:close()
+      side_preview:close()
+    end,
   })
 end
 
