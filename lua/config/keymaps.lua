@@ -22,16 +22,17 @@ wk.add({
 
       -- Save current buffer before compiling
       vim.cmd("silent write")
+      local file = vim.fn.expand("%:p")
+      local file_dir = vim.fn.expand("%:p:h") -- Extract directory containing the file
+      local pdf = vim.fn.expand("%:p:r") .. ".pdf"
 
-      -- Run latexmk asynchronously
       vim.fn.jobstart({ "latexmk", "-pdf", "-interaction=nonstopmode", file }, {
+        cwd = file_dir, -- Set execution context to the file's folder
         on_exit = function(_, exit_code, _)
           if exit_code == 0 then
             vim.notify("LaTeX compiled successfully!", vim.log.levels.INFO)
-
-            -- Start Zathura if it isn't already running
             if not zathura_job_id or vim.fn.jobwait({ zathura_job_id }, 0)[1] ~= -1 then
-              zathura_job_id = vim.fn.jobstart({ "zathura", pdf })
+              zathura_job_id = vim.fn.jobstart({ "zathura", pdf }, { cwd = file_dir })
             end
           else
             vim.notify("LaTeX compilation failed! Check logs.", vim.log.levels.ERROR)
@@ -42,29 +43,69 @@ wk.add({
     desc = "Compile LaTeX and Open PDF",
     mode = "n",
   },
+  {
+    "<leader>lc",
+    function()
+      if vim.bo.filetype ~= "tex" then
+        vim.notify("Not a LaTeX file!", vim.log.levels.WARN)
+        return
+      end
+      local file = vim.fn.expand("%:p")
+      local pdf = vim.fn.expand("%:p:r") .. ".pdf"
+
+      -- Save current buffer before compiling
+      vim.cmd("silent write")
+      local file = vim.fn.expand("%:p")
+      local file_dir = vim.fn.expand("%:p:h") -- Extract directory containing the file
+      local pdf = vim.fn.expand("%:p:r") .. ".pdf"
+
+      vim.fn.jobstart({ "latexmk", "-c", "-interaction=nonstopmode", file }, {
+        cwd = file_dir, -- Set execution context to the file's folder
+        on_exit = function(_, exit_code, _)
+          if exit_code == 0 then
+            vim.notify("LaTeX files cleaned successfully!", vim.log.levels.INFO)
+          else
+            vim.notify("LaTeX file cleaning failed! .", vim.log.levels.ERROR)
+          end
+        end,
+      })
+    end,
+    desc = "Clean LaTex compilation files",
+    mode = "n",
+  },
 })
 
--- Automatically kill the Zathura instance when Neovim closes
-vim.api.nvim_create_autocmd("VimLeavePre", {
-  callback = function()
-    if zathura_job_id and vim.fn.jobwait({ zathura_job_id }, 0)[1] == -1 then
-      vim.fn.jobstop(zathura_job_id)
-    end
-  end,
-})
-
+-- -- Clean the build files and close the zathura window
+-- vim.api.nvim_create_autocmd("VimLeavePre", {
+--   pattern = "*.tex",
+--   callback = function()
+--     -- Clean up intermediate LaTeX files (keeps the PDF)
+--     local file = vim.fn.expand("%:p")
+--     if file ~= "" then
+--       vim.fn.jobstart({ "latexmk", "-c", file })
+--     end
+--
+--     -- Kill Zathura process if running
+--     if zathura_job_id and vim.fn.jobwait({ zathura_job_id }, 0)[1] == -1 then
+--       vim.fn.jobstop(zathura_job_id)
+--     end
+--   end,
+-- })
+--
 vim.api.nvim_create_autocmd("BufWritePost", {
   pattern = "*.tex",
   callback = function()
     local file = vim.fn.expand("%:p")
+    local file_dir = vim.fn.expand("%:p:h") -- Extract directory containing the file
     local pdf = vim.fn.expand("%:p:r") .. ".pdf"
 
     vim.fn.jobstart({ "latexmk", "-pdf", "-interaction=nonstopmode", file }, {
+      cwd = file_dir, -- Set execution context to the file's folder
       on_exit = function(_, exit_code, _)
         if exit_code == 0 then
           -- If Zathura isn't running yet, open it
           if not zathura_job_id or vim.fn.jobwait({ zathura_job_id }, 0)[1] ~= -1 then
-            zathura_job_id = vim.fn.jobstart({ "zathura", pdf })
+            zathura_job_id = vim.fn.jobstart({ "zathura", pdf }, { cwd = file_dir })
           end
         else
           vim.notify("LaTeX compilation failed on save!", vim.log.levels.WARN)

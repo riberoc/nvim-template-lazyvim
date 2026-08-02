@@ -33,7 +33,7 @@ return {
       max_width = nil,
       max_height = nil,
       max_width_window_percentage = nil,
-      max_height_window_percentage = 50,
+      max_height_window_percentage = 100,
       scale_factor = 1.0,
       window_overlap_clear_enabled = false,
       window_overlap_clear_ft_ignore = {
@@ -52,6 +52,12 @@ return {
         "*.gif",
         "*.webp",
         "*.avif",
+      },
+      debug = {
+        enabled = true,
+        file_path = "/tmp/image.nvim.log",
+        format = "compact",
+        level = "debug",
       },
     })
   end,
