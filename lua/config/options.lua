@@ -13,3 +13,22 @@ vim.g.lazyvim_python_ruff = "ruff"
 
 vim.g.maplocalleader = ","
 vim.g.tex_flavor = "latex"
+
+vim.diagnostic.config({
+  virtual_text = true,
+  signs = true,
+  underline = true,
+  update_in_insert = true,
+  severity_sort = true,
+})
+
+vim.lsp.config("*", {
+  on_attach = function(client, bufnr)
+    -- some clients support workspace diagnostics natively
+    if client:supports_method("workspace/diagnostic", bufnr) then
+      vim.lsp.buf.workspace_diagnostics({ client_id = client.id })
+    else
+      require("workspace-diagnostics").populate_workspace_diagnostics(client, bufnr)
+    end
+  end,
+})

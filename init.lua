@@ -2,4 +2,4 @@
 require("config.lazy")
 
 -- init.lua
-require("config.fig-link").setup({ keymap = "gf" })
+-- require("config.fig-link").setup({ keymap = "gf" })
