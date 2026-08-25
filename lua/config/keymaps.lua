@@ -7,6 +7,12 @@ local wk = require("which-key")
 -- Global handle to track the Zathura job ID
 local zathura_job_id = nil
 
+pcall(vim.keymap.del, "n", "<leader>cl")
+wk.add({
+  { "<leader>cl", group = "LSP" },
+  { "<leader>clr", "<cmd>lsp restart basedpyright<CR>", desc = "Restart LSP" },
+})
+
 wk.add({
   { "<leader>cg", "<cmd>DogeGenerate<cr>", desc = "Generate DocString", mode = "n" },
   { "<leader>l", group = "latex" },

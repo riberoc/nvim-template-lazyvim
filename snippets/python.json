@@ -1,0 +1,26 @@
+{
+  "Protocol Definition": {
+    "prefix": "proto",
+    "body": [
+      "from typing import Protocol",
+      "",
+      "class ${1:MyProtocol}(Protocol):",
+      "    def ${2:method_name}(self, ${3:args}) -> ${4:ReturnType}:",
+      "        ..."
+    ],
+    "description": "Define a Python Protocol"
+  },
+  "Implement Protocol Class": {
+    "prefix": "implproto",
+    "body": [
+      "class ${1:ClassName}:",
+      "    \"\"\"Implements ${2:ProtocolName}.\"\"\"",
+      "    def __init__(self, ${3:args}) -> None:",
+      "        ${4:pass}",
+      "",
+      "    def ${5:method_name}(self, ${6:args}) -> ${7:ReturnType}:",
+      "        ${0:pass}"
+    ],
+    "description": "Class scaffold for implementing a Protocol"
+  }
+}
