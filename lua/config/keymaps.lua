@@ -8,9 +8,26 @@ local wk = require("which-key")
 local zathura_job_id = nil
 
 pcall(vim.keymap.del, "n", "<leader>cl")
+pcall(vim.keymap.del, "n", "<leader>cu")
 wk.add({
   { "<leader>cl", group = "LSP" },
   { "<leader>clr", "<cmd>lsp restart ty<CR>", desc = "Restart LSP" },
+  {
+    "<leader>clu",
+    function()
+      local clients = vim.lsp.get_clients({ bufnr = 0, name = "ty" })
+      for _, client in ipairs(clients) do
+        if client:supports_method("workspace/diagnostic") then
+          vim.lsp.buf.workspace_diagnostics({ client_id = client.id })
+          vim.notify("Refreshing Ty workspace diagnostics", vim.log.levels.INFO)
+          return
+        end
+      end
+
+      vim.notify("Ty workspace diagnostics are not available", vim.log.levels.WARN)
+    end,
+    desc = "Refresh Ty Workspace Diagnostics",
+  },
 })
 
 wk.add({
