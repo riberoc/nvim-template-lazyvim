@@ -1,25 +1,5 @@
 return {
   {
-    "artemave/workspace-diagnostics.nvim",
-    dependencies = { "neovim/nvim-lspconfig", "folke/which-key.nvim" },
-    keys = {
-      {
-        "<leader>cu",
-        function()
-          local clients = vim.lsp.get_clients()
-          for _, client in ipairs(clients) do
-            -- Skip tools like Copilot that don't declare filetypes or don't generate diagnostics
-            if client.config and client.config.filetypes then
-              require("workspace-diagnostics").populate_workspace_diagnostics(client, 0)
-            end
-          end
-        end,
-        desc = "Update Workspace Diagnostics",
-        mode = "n",
-      },
-    },
-  },
-  {
     "neovim/nvim-lspconfig",
     opts = {
       diagnostics = {
@@ -40,32 +20,19 @@ return {
         enabled = true,
       },
       servers = {
-        -- 1. REMOVED the global capabilities override so Neovim's file watcher can function
-
-        basedpyright = {
+        basedpyright = { enabled = false },
+        ty = {
+          on_attach = function(client, bufnr)
+            vim.defer_fn(function()
+              if not client:is_stopped() then
+                vim.lsp.buf.workspace_diagnostics({ client_id = client.id })
+              end
+            end, 500)
+          end,
           settings = {
-            basedpyright = {
-              analysis = {
-                pythonVersion = "3.14",
-                diagnosticMode = "workspace",
-                typeCheckingMode = "recommended",
-                reportUninitializedInstanceVariable = "warning",
-                autoSearchPaths = true,
-                autoImportCompletions = true,
-                useLibraryCodeForTypes = true,
-                inlayHints = {
-                  variableTypes = true,
-                  callArgumentNames = true,
-                  functionReturnTypes = true,
-                  genericTypes = true,
-                },
-              },
-              python = {
-                pythonPath = vim.fn.exepath("python3.14"),
-              },
+            ty = {
+              diagnosticMode = "workspace",
             },
-            -- Note: I removed the duplicate `python = { analysis = ... }` block you had here.
-            -- Basedpyright reads from the `basedpyright` table directly in Neovim.
           },
         },
         pyright = { enabled = false },

@@ -26,23 +26,6 @@ require("lazy").setup({
     { import = "lazyvim.plugins.extras.lang.json" }, -- JSON support
     { import = "lazyvim.plugins.extras.editor.snacks_explorer" }, -- Snacks file explorer
     { "nvim-neo-tree/neo-tree.nvim", enabled = false },
-    {
-      "neovim/nvim-lspconfig",
-      opts = {
-        servers = {
-          basedpyright = {
-            settings = {
-              basedpyright = {
-                analysis = {
-                  typeCheckingMode = "standard",
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-
     -- 3. import/override with your plugins
     { import = "plugins" },
   },

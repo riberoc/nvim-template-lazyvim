@@ -10,7 +10,7 @@ local zathura_job_id = nil
 pcall(vim.keymap.del, "n", "<leader>cl")
 wk.add({
   { "<leader>cl", group = "LSP" },
-  { "<leader>clr", "<cmd>lsp restart basedpyright<CR>", desc = "Restart LSP" },
+  { "<leader>clr", "<cmd>lsp restart ty<CR>", desc = "Restart LSP" },
 })
 
 wk.add({
