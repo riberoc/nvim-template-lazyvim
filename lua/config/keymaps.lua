@@ -4,6 +4,49 @@
 
 local wk = require("which-key")
 
+-- Keep the Git key group focused on Lazygit only.
+for _, mode in ipairs({ "n", "x" }) do
+  for _, lhs in ipairs({
+    "<leader>gB",
+    "<leader>gD",
+    "<leader>gL",
+    "<leader>gY",
+    "<leader>gb",
+    "<leader>gc",
+    "<leader>gd",
+    "<leader>ge",
+    "<leader>gf",
+    "<leader>ghb",
+    "<leader>ghB",
+    "<leader>ghd",
+    "<leader>ghD",
+    "<leader>ghp",
+    "<leader>ghR",
+    "<leader>ghr",
+    "<leader>ghS",
+    "<leader>ghs",
+    "<leader>ghu",
+    "<leader>gi",
+    "<leader>gI",
+    "<leader>gl",
+    "<leader>gp",
+    "<leader>gP",
+    "<leader>gs",
+    "<leader>gS",
+    "<leader>gG",
+  }) do
+    pcall(vim.keymap.del, mode, lhs)
+  end
+end
+
+pcall(vim.keymap.del, "n", "<leader>g")
+
+-- Open a vertical code pane and balance the split immediately.
+vim.keymap.set("n", "<leader>wv", function()
+  vim.cmd("vsplit")
+  vim.cmd("wincmd =")
+end, { desc = "Vertical Split (Equal)" })
+
 -- Global handle to track the Zathura job ID
 local zathura_job_id = nil
 

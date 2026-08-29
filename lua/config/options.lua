@@ -9,6 +9,10 @@ vim.g.doge_doc_standard_python = "google"
 
 vim.opt.wrap = false
 
+-- Keep split panes balanced when other windows are opened or closed.
+vim.opt.equalalways = true
+vim.opt.eadirection = "ver"
+
 vim.g.lazyvim_python_lsp = "ty"
 vim.g.lazyvim_python_ruff = "ruff"
 

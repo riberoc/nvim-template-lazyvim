@@ -6,7 +6,7 @@ return {
     { "<C-\\>", desc = "Toggle Terminal" },
     { "<leader>wT", "<cmd>ToggleTerm direction=horizontal<CR>", desc = "terminal horizontal" },
     { "<leader>wt", "<cmd>ToggleTerm direction=vertical<CR>", desc = "terminal vertical" },
-    { "<leader>wg", "<cmd>lua _lazygit_toggle()<CR>", desc = "lazygit" },
+    { "<leader>gg", "<cmd>lua _lazygit_toggle()<CR>", desc = "Lazygit" },
   },
   config = function()
     require("toggleterm").setup({
