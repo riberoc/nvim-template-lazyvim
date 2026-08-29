@@ -3,14 +3,13 @@ return {
   opts = {
     notifier = { enabled = true },
     explorer = {
+      enabled = true,
       replace_netrw = true,
     },
     picker = {
       sources = {
         explorer = {
-          -- show hidden files like .env
           hidden = true,
-          -- show files ignored by git like node_modules
           ignored = true,
           diagnostics = true,
           diagnostics_open = true,

@@ -1,55 +1,23 @@
 return {
   {
     "artemave/workspace-diagnostics.nvim",
-    dependencies = { "neovim/nvim-lspconfig" },
-    opts = {},
-    config = function()
-      local workspace_versions = {}
-
-      local function refresh_open_workspace_documents(client, current_buf)
-        local root = client.config.root_dir
-        if not root then
-          return
-        end
-
-        local current_file = vim.api.nvim_buf_get_name(current_buf)
-        local files = vim.fn.systemlist({ "git", "-C", root, "ls-files", "*.py" })
-
-        for _, relative_path in ipairs(files) do
-          local path = vim.fs.normalize(root .. "/" .. relative_path)
-          if path ~= current_file and vim.fn.filereadable(path) == 1 then
-            local uri = vim.uri_from_fname(path)
-            workspace_versions[uri] = (workspace_versions[uri] or 0) + 1
-            client:notify("textDocument/didChange", {
-              textDocument = { uri = uri, version = workspace_versions[uri] },
-              contentChanges = {
-                { text = table.concat(vim.fn.readfile(path), "\n") },
-              },
-            })
-          end
-        end
-      end
-
-      -- Hook into Basedpyright when it attaches to any Python buffer
-      vim.api.nvim_create_autocmd("LspAttach", {
-        callback = function(args)
-          local client = vim.lsp.get_client_by_id(args.data.client_id)
-          if client and client.name == "basedpyright" then
-            -- Populates diagnostics for all files in the background
-            require("workspace-diagnostics").populate_workspace_diagnostics(client, args.buf)
+    dependencies = { "neovim/nvim-lspconfig", "folke/which-key.nvim" },
+    keys = {
+      {
+        "<leader>cu",
+        function()
+          local clients = vim.lsp.get_clients()
+          for _, client in ipairs(clients) do
+            -- Skip tools like Copilot that don't declare filetypes or don't generate diagnostics
+            if client.config and client.config.filetypes then
+              require("workspace-diagnostics").populate_workspace_diagnostics(client, 0)
+            end
           end
         end,
-      })
-
-      vim.api.nvim_create_autocmd("BufWritePost", {
-        pattern = "*.py",
-        callback = function(args)
-          for _, client in ipairs(vim.lsp.get_clients({ bufnr = args.buf, name = "basedpyright" })) do
-            refresh_open_workspace_documents(client, args.buf)
-          end
-        end,
-      })
-    end,
+        desc = "Update Workspace Diagnostics",
+        mode = "n",
+      },
+    },
   },
   {
     "neovim/nvim-lspconfig",
