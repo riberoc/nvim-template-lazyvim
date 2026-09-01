@@ -12,12 +12,12 @@ return {
         },
         signs = true,
         underline = true,
-        update_in_insert = true, -- Live updates for active buffer while typing
+        update_in_insert = false,
         float = { border = "rounded" },
         severity_sort = true,
       },
       inlay_hints = {
-        enabled = true,
+        enabled = false,
       },
       servers = {
         basedpyright = { enabled = false },

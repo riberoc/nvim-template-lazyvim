@@ -9,6 +9,5 @@ return {
     enable_workspace_lookup = true,
     default_image_dir = "docs",
     workspace_dirs = { vim.fn.getcwd() },
-    debug = true,
   },
 }

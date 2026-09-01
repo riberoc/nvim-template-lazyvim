@@ -53,12 +53,6 @@ return {
         "*.webp",
         "*.avif",
       },
-      debug = {
-        enabled = true,
-        file_path = "/tmp/image.nvim.log",
-        format = "compact",
-        level = "debug",
-      },
     })
   end,
 }
