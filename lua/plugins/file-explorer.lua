@@ -24,13 +24,14 @@ return {
           { buffer = bufnr, desc = "Close Folder" }
         )
         vim.keymap.set("n", "l", api.node.open.edit, { buffer = bufnr, desc = "Open" })
+
+        vim.keymap.set("n", "R", api.fs.rename_full, { buffer = bufnr, desc = "Rename Full Path" })
       end,
 
       -- Visual and UI tweaks
       view = {
         width = 35,
         side = "left",
-        relativenumber = true, -- Great for relative line jumps (e.g., 5j)
       },
 
       renderer = {
@@ -56,7 +57,7 @@ return {
       -- Smart filtering and hiding options
       filters = {
         dotfiles = false, -- Shows hidden files (starting with .)
-        custom = { "^\\.git$" }, -- Keeps raw .git directories hidden
+        custom = { "^\\.git$", "__pycache__" },
       },
 
       -- Helpful diagnostic badges if using Neovim's built-in LSP

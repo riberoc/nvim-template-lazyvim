@@ -2,6 +2,14 @@ return {
   "folke/trouble.nvim",
   dependencies = { "nvim-tree/nvim-web-devicons" },
   opts = {
+    auto_preview = true,
+    auto_close = true,
+    focus = true,
+    follow = true,
+    indent_guides = true,
+    multiline = true,
+    sort = { "severity", "filename" },
+
     modes = {
       diagnostics = {
         filter = function(items)
@@ -35,7 +43,8 @@ return {
         win = {
           type = "split",
           position = "right",
-          size = 0.3, -- takes 30% of the screen width
+          size = 0.3,
+          wo = { wrap = true },
         },
       },
     },
@@ -50,6 +59,11 @@ return {
       "<leader>xX",
       "<cmd>Trouble diagnostics toggle<cr>",
       desc = "Workspace Diagnostics (Trouble)",
+    },
+    {
+      "<leader>xp",
+      "<cmd>Trouble preview_toggle<cr>",
+      desc = "Toggle Preview",
     },
   },
 }

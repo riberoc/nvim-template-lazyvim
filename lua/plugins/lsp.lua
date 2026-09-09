@@ -23,11 +23,9 @@ return {
       servers = {
         harper_ls = {
           filetypes = {
-            "gitcommit",
             "html",
             "markdown",
             "tex",
-            "toml",
             "txt",
           },
           userDictPath = "~/.config/nvim/spell/",
