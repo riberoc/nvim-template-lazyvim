@@ -35,3 +35,5 @@ vim.opt.colorcolumn = "80"
 vim.g.snacks_animate = false
 
 vim.opt.clipboard = ""
+
+vim.opt.spellfile = vim.fn.stdpath("config") .. "/spell/en.utf-8.add"

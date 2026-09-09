@@ -24,7 +24,6 @@ require("lazy").setup({
     { import = "lazyvim.plugins.extras.lang.python" }, -- Python (Pyright/Ruff)
     { import = "lazyvim.plugins.extras.lang.clangd" }, -- C / C++ (using clangd)
     { import = "lazyvim.plugins.extras.lang.json" }, -- JSON support
-    { import = "lazyvim.plugins.extras.editor.snacks_explorer" }, -- Snacks file explorer
     { "nvim-neo-tree/neo-tree.nvim", enabled = false },
     -- 3. import/override with your plugins
     { import = "plugins" },

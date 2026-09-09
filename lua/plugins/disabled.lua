@@ -4,8 +4,6 @@ return {
   --
   --
   {
-    -- 1. Disable mini.animate completely (if enabled via LazyVim UI extras)
-    { "echasnovski/mini.animate", enabled = false },
 
     -- 2. Disable animation on indent line guides
 

@@ -2,7 +2,7 @@ return {
   "L3MON4D3/LuaSnip",
   -- follow latest release.
   version = "v2.*",
-  -- install jsregexp (optional!).
+  -- Install jsregexp (optional!).
   build = "make install_jsregexp",
   dependencies = {
     "rafamadriz/friendly-snippets", -- Collection of common snippets
