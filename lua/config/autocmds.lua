@@ -10,14 +10,6 @@
 
 local tex_group = vim.api.nvim_create_augroup("TexFiletypeFix", { clear = true })
 
--- LazyVim restores its default clipboard setting during startup. Keep normal
--- yanks separate from the desktop clipboard unless `"+` is used explicitly.
-vim.api.nvim_create_autocmd("VimEnter", {
-  callback = function()
-    vim.opt.clipboard = ""
-  end,
-})
-
 vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
   pattern = "*.tex",
   group = tex_group,

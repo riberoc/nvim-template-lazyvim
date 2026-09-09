@@ -1,3 +1,4 @@
+--- This is a test for Harper. I went house.
 return {
   {
     "neovim/nvim-lspconfig",
@@ -20,13 +21,74 @@ return {
         enabled = false,
       },
       servers = {
+        harper_ls = {
+          settings = {
+            ["harper-ls"] = {
+              filetypes = {
+                "asciidoc",
+                "c",
+                "cpp",
+                "cs",
+                "gitcommit",
+                "go",
+                "html",
+                "java",
+                "javascript",
+                "lua",
+                "markdown",
+                "nix",
+                "python",
+                "ruby",
+                "rust",
+                "swift",
+                "tex",
+                "toml",
+                "typescript",
+                "typescriptreact",
+                "haskell",
+                "cmake",
+                "typst",
+                "php",
+                "dart",
+                "clojure",
+                "sh",
+              },
+              userDictPath = "",
+              workspaceDictPath = "",
+              fileDictPath = "",
+              linters = {
+                SpellCheck = true,
+                SpelledNumbers = false,
+                AnA = true,
+                SentenceCapitalization = true,
+                UnclosedQuotes = true,
+                WrongApostrophe = false,
+                LongSentences = true,
+                RepeatedWords = true,
+                Spaces = true,
+                CorrectNumberSuffix = true,
+              },
+              codeActions = {
+                ForceStable = false,
+              },
+              markdown = {
+                IgnoreLinkTitle = false,
+              },
+              diagnosticSeverity = "hint",
+              isolateEnglish = false,
+              dialect = "American",
+              maxFileLength = 120000,
+              ignoredLintsPath = "",
+              excludePatterns = {},
+            },
+          },
+        },
         basedpyright = { enabled = false },
         ty = {
-          -- Keep Neovim's pull-diagnostics support enabled for Ty's workspace mode.
           capabilities = {
             textDocument = {
               diagnostic = {
-                dynamicRegistration = false,
+                dynamicRegistration = True,
               },
             },
           },
@@ -43,19 +105,11 @@ return {
 
                 vim.defer_fn(function()
                   if not client:is_stopped() then
-                    -- The request is workspace-scoped, but Ty incrementally
-                    -- rechecks only the changed file and affected dependents.
                     vim.lsp.buf.workspace_diagnostics({ client_id = client.id })
                   end
-                end, 100)
+                end, 500)
               end,
             })
-
-            vim.defer_fn(function()
-              if not client:is_stopped() and client:supports_method("workspace/diagnostic") then
-                vim.lsp.buf.workspace_diagnostics({ client_id = client.id })
-              end
-            end, 500)
           end,
           settings = {
             ty = {
@@ -65,6 +119,18 @@ return {
         },
         pyright = { enabled = false },
         pylsp = { enabled = false },
+
+        -- LTEX CONFIGURATION
+        ltex = {
+          filetypes = { "bib", "markdown", "org", "tex" },
+          settings = {
+            ltex = {
+              language = "en-US",
+              -- This forces LTeX to only compute diagnostics when the file is saved
+              checkFrequency = "save",
+            },
+          },
+        },
       },
     },
   },

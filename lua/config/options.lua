@@ -8,9 +8,9 @@ vim.g.doge_doc_standard_python = "google"
 
 vim.opt.wrap = false
 
--- Keep split panes balanced when other windows are opened or closed.
-vim.opt.equalalways = true
-vim.opt.eadirection = "ver"
+-- -- Keep split panes balanced when other windows are opened or closed.
+-- vim.opt.equalalways = true
+-- vim.opt.eadirection = "ver"
 
 vim.g.lazyvim_python_lsp = "ty"
 vim.g.lazyvim_python_ruff = "ruff"
@@ -20,6 +20,10 @@ vim.g.tex_flavor = "latex"
 
 vim.diagnostic.config({
   virtual_text = true,
+  -- virtual_text intentionally shows only the last message when several
+  -- diagnostics share a source line. Show the complete set under the line
+  -- currently being inspected.
+  virtual_lines = { current_line = true },
   signs = true,
   underline = true,
   update_in_insert = false,
@@ -27,3 +31,7 @@ vim.diagnostic.config({
 })
 
 vim.opt.colorcolumn = "80"
+
+vim.g.snacks_animate = false
+
+vim.opt.clipboard = ""
